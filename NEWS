@@ -1,3 +1,35 @@
+Overview of changes in 0.0.92
+=============================
+
+* Embed the version from Meson into the binary
+* Make it build on aarch64
+
+
+Overview of changes in 0.0.91
+=============================
+
+* Add gvfs-client to the fedora-toolbox images
+* Adjust for changes in JSON output from 'podman ps' and 'podman images' in
+  Podman 2.0
+* Lower the Go build requirements to make it easier to build on Fedora
+* Show an error if $PWD is missing inside the container
+
+
+Overview of changes in 0.0.90
+=============================
+
+* Rewrite Toolbox in Go
+* Remove support for toolbox containers created by Toolbox 0.0.9 and older
+* Add option --version to show current Toolbox version
+* Add options --log-level and --log-podman as possible future replacements for
+  --verbose and --very-verbose
+* Clean up the spinner when aborted by SIGINT (or ctrl+c) and such
+* Fix duplication in the output of the list command
+* Mark the reset command as deprecated (replaced by 'podman system reset')
+* Support specifying the name of a toolbox container as an argument to the
+  create and enter commands, in addition to the --container option
+
+
 Overview of changes in 0.0.18
 =============================
 
@@ -208,7 +240,7 @@ Overview of changes in 0.0.1
 
 ----
 
-Copyright © 2018 – 2019 Red Hat, Inc.
+Copyright © 2018 – 2020 Red Hat, Inc.
 All rights reserved.
 
 Copying and distribution of this file, with or without modification,

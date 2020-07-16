@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright © 2018 – 2019 Red Hat, Inc.
+# Copyright © 2018 – 2020 Red Hat, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -1359,7 +1359,7 @@ init_container()
 
         cat <<EOF >/etc/krb5.conf.d/kcm_default_ccache 2>&3
 # Written by Toolbox
-# https://github.com/debarshiray/toolbox
+# https://github.com/containers/toolbox
 #
 # # To disable the KCM credential cache, comment out the following lines.
 
@@ -1602,6 +1602,16 @@ run()
     ret_val="$?"
 
     $emit_escape_sequence && printf "\033]777;container;pop;;\033\\"
+
+    if [ "$ret_val" -eq 127 ] 2>&3; then
+        # shellcheck disable=SC2016
+        if ! $podman_command exec \
+                     --user "$USER" \
+                     "$toolbox_container" \
+                     sh -c 'test -d "$1"' sh "$PWD" >/dev/null 2>&3; then
+            echo "$base_toolbox_command: directory '$PWD' not found in container $toolbox_container" >&2
+        fi
+    fi
 
     exit "$ret_val"
 )

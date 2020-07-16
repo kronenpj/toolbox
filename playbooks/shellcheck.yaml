@@ -5,7 +5,8 @@
       become: yes
       package:
         name:
-          - golang-github-cpuguy83-go-md2man
+          - golang
+          - golang-github-cpuguy83-md2man
           - ninja-build
           - meson
           - ShellCheck
