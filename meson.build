@@ -1,9 +1,14 @@
 project(
   'toolbox',
-  version: '0.0.92',
+  'c',
+  version: '0.0.95',
   license: 'ASL 2.0',
   meson_version: '>= 0.40.0',
 )
+
+cc = meson.get_compiler('c')
+add_project_arguments('-pthread', language: 'c')
+add_project_link_arguments('-pthread', language: 'c')
 
 go = find_program('go')
 go_md2man = find_program('go-md2man')
@@ -27,6 +32,11 @@ if bash_completion.found()
     install_dir: bash_completion.get_pkgconfig_variable('completionsdir')
   )
 endif
+
+install_subdir(
+  'test',
+  install_dir: join_paths(get_option('datadir'), meson.project_name())
+)
 
 subdir('data')
 subdir('doc')

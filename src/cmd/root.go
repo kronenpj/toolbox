@@ -232,19 +232,18 @@ func migrate() error {
 		return fmt.Errorf("failed to create runtime directory %s", toolboxRuntimeDirectory)
 	}
 
-	lockFile := toolboxRuntimeDirectory + "/migrate.lock"
+	migrateLock := toolboxRuntimeDirectory + "/migrate.lock"
 
-	lockFD, err := syscall.Open(lockFile,
-		syscall.O_CREAT|syscall.O_WRONLY,
-		syscall.S_IRUSR|syscall.S_IWUSR|syscall.S_IRGRP|syscall.S_IWGRP|syscall.S_IROTH)
+	migrateLockFile, err := os.Create(migrateLock)
 	if err != nil {
-		return fmt.Errorf("failed to open migration lock file")
+		return fmt.Errorf("failed to create migration lock file")
 	}
 
-	defer syscall.Close(lockFD)
+	defer migrateLockFile.Close()
 
-	err = syscall.Flock(lockFD, syscall.LOCK_EX)
-	if err != nil {
+	migrateLockFD := migrateLockFile.Fd()
+	migrateLockFDInt := int(migrateLockFD)
+	if err := syscall.Flock(migrateLockFDInt, syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("failed to acquire migration lock")
 	}
 

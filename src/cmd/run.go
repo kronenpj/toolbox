@@ -194,7 +194,7 @@ func runCommand(container string,
 		} else if containersCount == 1 && defaultContainer {
 			fmt.Fprintf(os.Stderr, "Error: container %s not found\n", container)
 
-			container = containers[0]["Names"].(string)
+			container = containers[0].Names[0]
 			fmt.Fprintf(os.Stderr, "Entering container %s instead.\n", container)
 			fmt.Fprintf(os.Stderr, "Use the 'create' command to create a different toolbox.\n")
 			fmt.Fprintf(os.Stderr, "Run '%s --help' for usage.\n", executableBase)
@@ -257,9 +257,11 @@ func runCommand(container string,
 
 	if _, err := isCommandPresent(container, command[0]); err != nil {
 		if fallbackToBash {
-			logrus.Debugf("command %s not found in container %s; using /bin/bash instead",
+			fmt.Fprintf(os.Stderr,
+				"Error: command %s not found in container %s\n",
 				command[0],
 				container)
+			fmt.Fprintf(os.Stderr, "Using /bin/bash instead.\n")
 
 			command = []string{"/bin/bash"}
 		} else {

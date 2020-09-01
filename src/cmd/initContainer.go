@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -142,6 +143,16 @@ func initContainer(cmd *cobra.Command, args []string) error {
 
 	defer toolboxEnvFile.Close()
 
+	logrus.Debug("Mounting tmpfs at /tmp")
+
+	if err := syscall.Mount("tmpfs",
+		"/tmp",
+		"tmpfs",
+		syscall.MS_NODEV|syscall.MS_STRICTATIME|syscall.MS_NOSUID,
+		"mode=1777"); err != nil {
+		return fmt.Errorf("failed to mount tmpfs at /tmp: %s", err)
+	}
+
 	if initContainerFlags.monitorHost {
 		logrus.Debug("Monitoring host")
 
@@ -223,49 +234,22 @@ func initContainer(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := user.Lookup(initContainerFlags.user); err != nil {
-		if initContainerFlags.homeLink {
-			if err := redirectPath("/home", "/var/home", true); err != nil {
-				return err
-			}
-		}
-
-		sudoGroup, err := utils.GetGroupForSudo()
-		if err != nil {
-			return fmt.Errorf("failed to add user %s: %s", initContainerFlags.user, err)
-		}
-
-		logrus.Debugf("Adding user %s with UID %d:", initContainerFlags.user, initContainerFlags.uid)
-
-		useraddArgs := []string{
-			"--home-dir", initContainerFlags.home,
-			"--no-create-home",
-			"--shell", initContainerFlags.shell,
-			"--uid", fmt.Sprint(initContainerFlags.uid),
-			"--groups", sudoGroup,
+		if err := configureUsers(initContainerFlags.uid,
 			initContainerFlags.user,
+			initContainerFlags.home,
+			initContainerFlags.shell,
+			initContainerFlags.homeLink,
+			false); err != nil {
+			return err
 		}
-
-		logrus.Debug("useradd")
-		for _, arg := range useraddArgs {
-			logrus.Debugf("%s", arg)
-		}
-
-		if err := shell.Run("useradd", nil, nil, nil, useraddArgs...); err != nil {
-			return fmt.Errorf("failed to add user %s with UID %d",
-				initContainerFlags.user,
-				initContainerFlags.uid)
-		}
-
-		logrus.Debugf("Removing password for user %s", initContainerFlags.user)
-
-		if err := shell.Run("passwd", nil, nil, nil, "--delete", initContainerFlags.user); err != nil {
-			return fmt.Errorf("failed to remove password for user %s", initContainerFlags.user)
-		}
-
-		logrus.Debug("Removing password for user root")
-
-		if err := shell.Run("passwd", nil, nil, nil, "--delete", "root"); err != nil {
-			return errors.New("failed to remove password for root")
+	} else {
+		if err := configureUsers(initContainerFlags.uid,
+			initContainerFlags.user,
+			initContainerFlags.home,
+			initContainerFlags.shell,
+			initContainerFlags.homeLink,
+			true); err != nil {
+			return err
 		}
 	}
 
@@ -361,6 +345,77 @@ func initContainerHelp(cmd *cobra.Command, args []string) {
 	}
 }
 
+func configureUsers(targetUserUid int,
+	targetUser, targetUserHome, targetUserShell string,
+	homeLink, targetUserExists bool) error {
+	if homeLink {
+		if err := redirectPath("/home", "/var/home", true); err != nil {
+			return err
+		}
+	}
+
+	sudoGroup, err := utils.GetGroupForSudo()
+	if err != nil {
+		return fmt.Errorf("failed to get group for sudo: %w", err)
+	}
+
+	if targetUserExists {
+		logrus.Debugf("Modifying user %s with UID %d:", targetUser, targetUserUid)
+
+		usermodArgs := []string{
+			"--append",
+			"--groups", sudoGroup,
+			"--home", targetUserHome,
+			"--shell", targetUserShell,
+			"--uid", fmt.Sprint(targetUserUid),
+			targetUser,
+		}
+
+		logrus.Debug("usermod")
+		for _, arg := range usermodArgs {
+			logrus.Debugf("%s", arg)
+		}
+
+		if err := shell.Run("usermod", nil, nil, nil, usermodArgs...); err != nil {
+			return fmt.Errorf("failed to modify user %s with UID %d", targetUser, targetUserUid)
+		}
+	} else {
+		logrus.Debugf("Adding user %s with UID %d:", targetUser, targetUserUid)
+
+		useraddArgs := []string{
+			"--groups", sudoGroup,
+			"--home-dir", targetUserHome,
+			"--no-create-home",
+			"--shell", targetUserShell,
+			"--uid", fmt.Sprint(targetUserUid),
+			targetUser,
+		}
+
+		logrus.Debug("useradd")
+		for _, arg := range useraddArgs {
+			logrus.Debugf("%s", arg)
+		}
+
+		if err := shell.Run("useradd", nil, nil, nil, useraddArgs...); err != nil {
+			return fmt.Errorf("failed to add user %s with UID %d", targetUser, targetUserUid)
+		}
+	}
+
+	logrus.Debugf("Removing password for user %s", targetUser)
+
+	if err := shell.Run("passwd", nil, nil, nil, "--delete", targetUser); err != nil {
+		return fmt.Errorf("failed to remove password for user %s", targetUser)
+	}
+
+	logrus.Debug("Removing password for user root")
+
+	if err := shell.Run("passwd", nil, nil, nil, "--delete", "root"); err != nil {
+		return errors.New("failed to remove password for root")
+	}
+
+	return nil
+}
+
 func mountBind(containerPath, source, flags string) error {
 	fi, err := os.Stat(source)
 	if err != nil {
@@ -397,23 +452,112 @@ func mountBind(containerPath, source, flags string) error {
 	return nil
 }
 
+// redirectPath serves for creating symbolic links for crucial system
+// configuration files to their counterparts on the host's filesystem.
+//
+// containerPath and target must be absolute paths
+//
+// If the target itself is a symbolic link, redirectPath will evaluate the
+// link. If it's valid then redirectPath will link containerPath to target.
+// If it's not, then redirectPath will still proceed with the linking in two
+// different ways depending whether target is an absolute or a relative link:
+//
+//   * absolute - target's destination will be prepended with /run/host, and
+//                containerPath will be linked to the resulting path. This is
+//                an attempt to unbreak things, but if it doesn't work then
+//                it's the user's responsibility to fix it up.
+//
+//                This is meant to address the common case where
+//                /etc/resolv.conf on the host (ie., /run/host/etc/resolv.conf
+//                inside the container) is an absolute symbolic link to
+//                something like /run/systemd/resolve/stub-resolv.conf. The
+//                container's /etc/resolv.conf will then get linked to
+//                /run/host/run/systemd/resolved/resolv-stub.conf.
+//
+//                This is why properly configured hosts should use relative
+//                symbolic links, because they don't need to be adjusted in
+//                such scenarios.
+//
+//   * relative - containerPath will be linked to the invalid target, and it's
+//                the user's responsibility to fix it up.
+//
+// folder signifies if the target is a folder
 func redirectPath(containerPath, target string, folder bool) error {
-	logrus.Debugf("Redirecting %s to %s", containerPath, target)
+	if !filepath.IsAbs(containerPath) {
+		panic("containerPath must be an absolute path")
+	}
+
+	if !filepath.IsAbs(target) {
+		panic("target must be an absolute path")
+	}
+
+	logrus.Debugf("Preparing to redirect %s to %s", containerPath, target)
+	targetSanitized := sanitizeRedirectionTarget(target)
 
 	err := os.Remove(containerPath)
 	if folder {
 		if err != nil {
-			return fmt.Errorf("failed to redirect %s to %s", containerPath, target)
+			return fmt.Errorf("failed to redirect %s to %s: %w", containerPath, target, err)
 		}
 
 		if err := os.MkdirAll(target, 0755); err != nil {
-			return fmt.Errorf("failed to redirect %s to %s", containerPath, target)
+			return fmt.Errorf("failed to redirect %s to %s: %w", containerPath, target, err)
 		}
 	}
 
-	if err := os.Symlink(target, containerPath); err != nil {
-		return fmt.Errorf("failed to redirect %s to %s", containerPath, target)
+	logrus.Debugf("Redirecting %s to %s", containerPath, targetSanitized)
+
+	if err := os.Symlink(targetSanitized, containerPath); err != nil {
+		return fmt.Errorf("failed to redirect %s to %s: %w", containerPath, target, err)
 	}
 
 	return nil
+}
+
+func sanitizeRedirectionTarget(target string) string {
+	if !filepath.IsAbs(target) {
+		panic("target must be an absolute path")
+	}
+
+	fileInfo, err := os.Lstat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logrus.Warnf("%s not found", target)
+		} else {
+			logrus.Warnf("Failed to lstat %s: %v", target, err)
+		}
+
+		return target
+	}
+
+	fileMode := fileInfo.Mode()
+	if fileMode&os.ModeSymlink == 0 {
+		logrus.Debugf("%s isn't a symbolic link", target)
+		return target
+	}
+
+	logrus.Debugf("%s is a symbolic link", target)
+
+	_, err = filepath.EvalSymlinks(target)
+	if err == nil {
+		return target
+	}
+
+	logrus.Warnf("Failed to resolve %s: %v", target, err)
+
+	targetDestination, err := os.Readlink(target)
+	if err != nil {
+		logrus.Warnf("Failed to get the destination of %s: %v", target, err)
+		return target
+	}
+
+	logrus.Debugf("%s points to %s", target, targetDestination)
+
+	if filepath.IsAbs(targetDestination) {
+		logrus.Debugf("Prepending /run/host to %s", targetDestination)
+		targetGuess := filepath.Join("/run/host", targetDestination)
+		return targetGuess
+	}
+
+	return target
 }

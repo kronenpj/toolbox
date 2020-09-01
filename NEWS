@@ -1,3 +1,43 @@
+Overview of changes in 0.0.95
+=============================
+
+* Try to handle configuration files that're absolute symlinks when the entry
+  point sets up the container
+* Unbreak 'enter' on Fedora CoreOS
+* Unbreak 'sudo' inside toolbox containers with Podman 2.0.5
+* Warn if $TERM has no terminfo entry in the container
+
+
+Overview of changes in 0.0.94
+=============================
+
+* Add contribution guidelines
+* Add fedora-toolbox image definition for Fedora 34
+* Add more information to errors from creating symbolic links when setting up
+  the toolbox container in the entry point
+* Ensure binaries built on Fedora 33 run on Fedoras 32 & 31
+* Install the tests
+* Make it more obvious when falling back to /bin/bash
+* Document that sudo(8) should work without a password
+* Mount a tmpfs at /tmp to match the host
+* Update issue templates
+
+
+Overview of changes in 0.0.93
+=============================
+
+* Ensure reproducible builds by using the -trimpath build flag
+* Fix the test suite to work with the Go implementation
+* Make listing of containers and images more robust against changes in the JSON
+  returned by Podman
+* List out dependencies and installation instructions
+* Re-enable highlighting of running containers
+* Show the spinner only when connected to a terminal
+* Speed things up by caching the Podman version at runtime
+* Update hint after creating a container to use the new syntax
+* Use the correct verb format for string
+
+
 Overview of changes in 0.0.92
 =============================
 
