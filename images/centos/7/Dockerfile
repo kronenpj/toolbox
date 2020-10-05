@@ -25,6 +25,5 @@ RUN rm /missing-docs
 RUN rm /extra-packages
 
 RUN echo VARIANT_ID=container >> /etc/os-release
-RUN ln -s /etc/os-release /usr/lib/os-release
 
 CMD /bin/sh
